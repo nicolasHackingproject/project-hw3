@@ -42,6 +42,11 @@ class ReplayBuffer():
         FILL ME : This function should initialize the replay buffer `self.buffer` with maximum size of `buffer_limit` (`int`).
                   len(self.buffer) should give the current size of the buffer `self.buffer`.
         '''
+        self.current_number = 0
+        self.buffer_limit = buffer_limit
+        #self.buffer = deque() -> could be faster 
+        self.buffer = []
+
         pass
     
     def push(self, transition):
@@ -55,6 +60,20 @@ class ReplayBuffer():
         Output:
             * None
         '''
+
+        """Add an experience to the buffer"""
+    
+        #Add transition tupple to buffer
+        # If buffer is not full 
+        if self.current_number < self.buffer_limit:
+            self.buffer.append(transition)
+            self.current_number += 1
+        # If buffer is full -> pop one element 
+        else:
+            # Remove first element of the list 
+            self.buffer.pop(0)
+            self.buffer.append(transition)
+
         pass
     
     def sample(self, batch_size):
@@ -71,8 +90,21 @@ class ReplayBuffer():
                 * `rewards`     (`torch.tensor` [batch_size, 1])
                 * `next_states` (`torch.tensor` [batch_size, channel, height, width])
                 * `dones`       (`torch.tensor` [batch_size, 1])
-              All `torch.tensor` (except `actions`) should have a datatype `torch.float` and resides in torch device `device`.
+            All `torch.tensor` (except `actions`) should have a datatype `torch.float` and resides in torch device `device`.
         '''
+        batch = []
+
+        if self.current_number < batch_size:
+            batch = random.sample(self.buffer, self.current_number)
+        else:
+            batch = random.sample(self.buffer, batch_size)
+        
+        
+        states_batch, actions_batch, rewards_batch, dones_batch, next_states_batch = list(map(torch.tensor, list(zip(*batch))))
+       
+
+        return states_batch, actions_batch, rewards_batch, dones_batch, next_states_batch
+
         pass
 
     def __len__(self):
