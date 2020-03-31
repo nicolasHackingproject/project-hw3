@@ -154,6 +154,16 @@ class BaseAgent(Base):
         Output: action (`Action` or `int`): representing the action to be taken.
                 if action is of type `int`, it should be less than `self.num_actions`
         '''
+
+        #Random value  
+        rand_val = np.random.random()
+        if rand_val < epsilon:
+            #Return random action with outpout < num_actions        
+            output = np.random.randint(0, self.num_actions)
+        else:
+            #Use forward prediction to choose action 
+            output = self.forward(state)
+
         pass
 
 class DQN(BaseAgent):
@@ -194,6 +204,9 @@ def compute_loss(model, target, states, actions, rewards, next_states, dones):
         * MSE Loss  : https://pytorch.org/docs/stable/nn.html#torch.nn.MSELoss
         * Huber Loss: https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
     '''
+
+    
+
     pass
 
 def optimize(model, target, memory, optimizer):
