@@ -159,12 +159,14 @@ class BaseAgent(Base):
         rand_val = np.random.random()
         if rand_val < epsilon:
             #Return random action with outpout < num_actions        
+            
             output = np.random.randint(0, self.num_actions)
         else:
             #Use forward prediction to choose action 
-            output = self.forward(state)
-
-        pass
+          
+            output = torch.argmax(self.forward(state), dim=1)
+        
+        return int(output)
 
 class DQN(BaseAgent):
     def construct(self):
@@ -186,6 +188,7 @@ class ConvDQN(DQN):
 
 
 def compute_loss(model, target, states, actions, rewards, next_states, dones):
+    
     '''
     FILL ME : This function should compute the DQN loss function for a batch of experiences.
 
@@ -205,9 +208,39 @@ def compute_loss(model, target, states, actions, rewards, next_states, dones):
         * Huber Loss: https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
     '''
 
-    
+    '''compute_loss: compute the temporal difference loss  of the DQN model Q, incorporating
+    the target network ^ Q:  = Q(s; a) 􀀀 (r + 
+    maxa ^Q
+    (s0; a); with discounting factor 
+    and
+    reward r of state s after taking action a and giving next state s0. To minimize this distance,
+    we can use Mean Squared Error (MSE) loss or Huber loss. Huber loss is known to be less
+    sensitive to outliers and in some cases prevents exploding gradients (e.g. see Fast R-CNN
+    paper by Ross Girshick1).'''
 
-    pass
+    '''Target Network: DQN loss function computes the distance between the Q values induced
+    by the model with its expected Q values (given by the next state Q values and current state
+    reward). However, such an objective is hard to optimize because it optimizes for a moving
+    target distribution (i.e., the expected Q values). To minimize such a problem, instead of
+    computing the expected Q values using the model that we are currently training, we use a
+    target model (target network) instead, a replica of the model that is synchronized every few
+    episodes.'''
+
+    # resize tensors
+    actions = actions.view(actions.size(0), 1)
+    dones = dones.view(dones.size(0), 1)
+
+    # compute loss
+    next_Q = target.forward(next_states.float())
+    curr_Q = model.forward(states.float()).gather(1, actions)
+    
+    max_next_Q = torch.max(next_Q, 1)[0]
+    max_next_Q = max_next_Q.view(max_next_Q.size(0), 1)
+    #print(max_next_Q)
+    expected_Q = rewards + (1 - dones.int()) * gamma * max_next_Q
+    #print(expected_Q)
+    loss = F.mse_loss(curr_Q, expected_Q.detach()) 
+    return loss
 
 def optimize(model, target, memory, optimizer):
     '''
@@ -264,7 +297,7 @@ def train(model_class, env):
         for t in range(t_max):
             # Model takes action
             action = model.act(state, epsilon)
-
+            
             # Apply the action to the environment
             next_state, reward, done, info = env.step(action)
 
