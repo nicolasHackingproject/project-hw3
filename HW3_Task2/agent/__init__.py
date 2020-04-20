@@ -77,16 +77,7 @@ if __name__ == '__main__':
         }
 
     task = get_task()
-    timed_test(task)
-    
-    
-    
-        
-
-    
-    
-    
-               'testcases': [{ 'id': tc, 'env': construct_task2_env(), 'runs': 300, 't_max': t_max } for tc, t_max in tcs]
+    timed_test(task)           'testcases': [{ 'id': tc, 'env': construct_task2_env(), 'runs': 300, 't_max': t_max } for tc, t_max in tcs]
         }
 
     task = get_task()
