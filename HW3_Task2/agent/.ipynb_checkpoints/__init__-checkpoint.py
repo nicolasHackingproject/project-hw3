@@ -1,8 +1,9 @@
 #from runner.abstracts import Agent
-import models
-from env import construct_task2_env
+
 
 try:
+    import models
+    from env import construct_task2_env
     from runner.abstracts import Agent
 except:
     class Agent(object): pass
@@ -77,8 +78,4 @@ if __name__ == '__main__':
         }
 
     task = get_task()
-    timed_test(task)           'testcases': [{ 'id': tc, 'env': construct_task2_env(), 'runs': 300, 't_max': t_max } for tc, t_max in tcs]
-        }
-
-    task = get_task()
-    timed_test(task)
+    timed_test(task)    ask)

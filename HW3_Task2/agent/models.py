@@ -1,7 +1,6 @@
 import torch
 import torch.autograd as autograd
 import torch.nn as nn
-import env as env_builder
 import gym
 import gym_grid_driving
 import collections
@@ -32,20 +31,21 @@ model_path = os.path.join(script_path, 'model_{}.pt'.format(date_save))
 learning_rate = 0.001
 gamma         = 0.98
 # buffer_limit = 5000
-buffer_limit  = 10000
+buffer_limit  = 4000
 # batch_size = 32
-batch_size    = 64
+batch_size    = 32
 
-max_episodes  = 2000
+max_episodes  = 30000
+sous_max_episodes  = 2000
 t_max         = 600
 # min_buffer = 2000
 min_buffer    = 4000
 target_update = 100 # episode(s)
 train_steps   = 10
-max_epsilon   = 1.0
+max_epsilon   = 0.1
 min_epsilon   = 0.01
 #psilon_decay = 500
-epsilon_decay = 700
+epsilon_decay = 100
 #print_interval= 20
 print_interval= 10
 
@@ -220,43 +220,28 @@ class AtariDQN(DQN):
 
 def compute_loss(model, target, states, actions, rewards, next_states, dones):
     
+
+    # resize tensors
+    actions = actions.view(actions.size(0), 1).to(device)
+    dones = dones.view(dones.size(0), 1).int().to(device)
+
+
+    next_states = next_states.float().to(device)
+    states = states.float().to(device)
+    rewards = rewards.to(device)
+
+    # compute loss
+    next_Q = target.forward(next_states)
+    curr_Q = model.forward(states).gather(1, actions)
+    
+    max_next_Q = (torch.max(next_Q, 1)[0])
+    max_next_Q = (max_next_Q.view(max_next_Q.size(0), 1))
+    #print(max_next_Q)
+    expected_Q = (rewards + (1 - dones.int()) * gamma * max_next_Q)
+    #print(expected_Q)
+    loss = F.mse_loss(curr_Q, expected_Q) 
+
     '''
-    FILL ME : This function should compute the DQN loss function for a batch of experiences.
-
-    Input:
-        * `model`       : model network to optimize
-        * `target`      : target network
-        * `states`      (`torch.tensor` [batch_size, channel, height, width])
-        * `actions`     (`torch.tensor` [batch_size, 1])
-        * `rewards`     (`torch.tensor` [batch_size, 1])
-        * `next_states` (`torch.tensor` [batch_size, channel, height, width])
-        * `dones`       (`torch.tensor` [batch_size, 1])
-
-    Output: scalar representing the loss.
-
-    References:
-        * MSE Loss  : https://pytorch.org/docs/stable/nn.html#torch.nn.MSELoss
-        * Huber Loss: https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
-    '''
-
-    '''compute_loss: compute the temporal difference loss  of the DQN model Q, incorporating
-    the target network ^ Q:  = Q(s; a) 􀀀 (r + 
-    maxa ^Q
-    (s0; a); with discounting factor 
-    and
-    reward r of state s after taking action a and giving next state s0. To minimize this distance,
-    we can use Mean Squared Error (MSE) loss or Huber loss. Huber loss is known to be less
-    sensitive to outliers and in some cases prevents exploding gradients (e.g. see Fast R-CNN
-    paper by Ross Girshick1).'''
-
-    '''Target Network: DQN loss function computes the distance between the Q values induced
-    by the model with its expected Q values (given by the next state Q values and current state
-    reward). However, such an objective is hard to optimize because it optimizes for a moving
-    target distribution (i.e., the expected Q values). To minimize such a problem, instead of
-    computing the expected Q values using the model that we are currently training, we use a
-    target model (target network) instead, a replica of the model that is synchronized every few
-    episodes.'''
-
     # resize tensors
     actions = actions.view(actions.size(0), 1)
     dones = dones.view(dones.size(0), 1)
@@ -271,6 +256,9 @@ def compute_loss(model, target, states, actions, rewards, next_states, dones):
     expected_Q = rewards + (1 - dones.int()) * gamma * max_next_Q
     #print(expected_Q)
     loss = F.mse_loss(curr_Q, expected_Q.detach()) 
+    return loss
+    '''
+
     return loss
 
 def optimize(model, target, memory, optimizer):
@@ -291,7 +279,7 @@ def compute_epsilon(episode):
     epsilon = min_epsilon + (max_epsilon - min_epsilon) * math.exp(-1. * episode / epsilon_decay)
     return epsilon
 
-def train(model_class, env):
+def train(model_class, env,pretrain=False,model_p= None,savepath=''):
     '''
     Train a model of instance `model_class` on environment `env` (`GridDrivingEnv`).
     
@@ -303,9 +291,17 @@ def train(model_class, env):
 
     Output: `model`: the trained model.
     '''
+    
+    
 
     # Initialize model and target network
-    model = model_class(env.observation_space.shape, env.action_space.n).to(device)
+    if not(pretrain):
+      model = model_class(env.observation_space.shape, env.action_space.n).to(device)
+    if pretrain: 
+      model = model_class(env.observation_space.shape, env.action_space.n).to(device)
+      model.load_state_dict(model_p.state_dict())
+      model.eval()
+
     target = model_class(env.observation_space.shape, env.action_space.n).to(device)
     target.load_state_dict(model.state_dict())
     target.eval()
@@ -324,60 +320,144 @@ def train(model_class, env):
     rewards_l= []
     episodes_l= []
 
-    for episode in range(max_episodes):
-        epsilon = compute_epsilon(episode)
-        state = env.reset()
-        episode_rewards = 0.0
+    config = np.array([[5,10,10],[10,15,15],[15,20,20],[20,25,25],[25,30,30],[30,35,31],[35,40,34],[40,45,33],[49,49,40]])
 
-        for t in range(t_max):
-            # Model takes action
-            action = model.act(state, epsilon)
+    for etape in range(8,9):
+
+      # Initialize rewards, losses, and optimizer
+      rewards = []
+      losses = []  
+      # Reinitialze rewards and losses
+      memory = ReplayBuffer()
+      config_x = config[etape]
+      x_min = config_x[0]
+      x_max = config_x[1]
+      double_reward = config_x[2]
+
+      i_1 = random.randint(x_min,x_max)
+      if etape >= 8:
+        j_1 = 4
+      elif etape >= 7:
+        j_1 = random.randint(2,4)
+      else:
+        j_1 = random.randint(0,4)
+
+      construct_task2_env(i_1,j_1)
+      state = env.reset()
+      print("range change : x_min {} x_max {}".format(x_min,x_max))
+
+      for episode in range(max_episodes):
+          
+          if episode % sous_max_episodes ==0:
             
-            # Apply the action to the environment
-            next_state, reward, done, info = env.step(action)
+            i_1 = random.randint(x_min,x_max)
+            if etape >= 8:
+              j_1 = 4
+            elif etape >= 7:
+              j_1 = random.randint(2,4)
+            else:
+              j_1 = random.randint(0,4)
+            construct_task2_env(i_1,j_1)
+            print("environment change : i_1 {} j_1 {}".format(i_1,j_1))
 
-            # Save transition to replay buffer
-            memory.push(Transition(state, [action], [reward], next_state, [done]))
+          if episode % 500 == 0 and episode > 0 :
 
-            state = next_state
-            episode_rewards += reward
-            if done:
-                break
-        rewards.append(episode_rewards)
-        
-        # Train the model if memory is sufficient
-        if len(memory) > min_buffer:
-            if np.mean(rewards[print_interval:]) < 0.1:
-                print('Bad initialization. Please restart the training.')
-                exit()
-            for i in range(train_steps):
-                loss = optimize(model, target, memory, optimizer)
-                losses.append(loss.item())
+            mainTest(model,runs=100)
 
-        # Update target network every once in a while
-        if episode % target_update == 0:
-            target.load_state_dict(model.state_dict())
+          epsilon = compute_epsilon(episode)
+          state = env.reset()
+          episode_rewards = 0.0
 
-        if episode % print_interval == 0 and episode > 0:
-            print("[Episode {}]\tavg rewards : {:.3f},\tavg loss: : {:.6f},\tbuffer size : {},\tepsilon : {:.1f}%".format(
-                            episode, np.mean(rewards[print_interval:]), np.mean(losses[print_interval*10:]), len(memory), epsilon*100))
-            episodes_l.append(episode)
-            rewards_l.append(np.mean(rewards[print_interval:]))
-            losses_l.append(np.mean(losses[print_interval*10:]))
-    try:
-      object_export = np.array([episodes,rwds,losses_l])
-    except:
-      print("Error while exporting")
-      data = (model.__class__.__name__, model.state_dict(), model.input_shape, model.num_actions)
-      torch.save(data, model_path)
+          for t in range(t_max):
+              # Model takes action
+              action = model.act(state, epsilon)
+              
+              # Apply the action to the environment
+              next_state, reward, done, info = env.step(action)
+
+              if not(done) and (action == 2 or action ==3):
+                if action == 2:
+                  reward = 0.2
+                elif action ==3:
+                  reward = 0.1
+
+              # Save transition to replay buffer  
+              memory.push(Transition(state, [action], [reward], next_state, [done]))
+
+              state = next_state
+              episode_rewards += reward
+            
+              if done:
+                  if t<=40 and episode_rewards >= 10:
+                    episode_rewards = 20
+                  elif episode_rewards >= 10:
+                    episode_rewards = 10
+                  rewards.append(episode_rewards)  
+                  break
+          
+          # Train the model if memory is sufficient
+          if len(memory) > batch_size*4:
+              #if np.mean(rewards[print_interval:]) < 0.1:
+              #    print('Bad initialization. Please restart the training.')
+              #    exit()
+              for i in range(train_steps):
+                  loss = optimize(model, target, memory, optimizer)
+                  losses.append(loss.item())
+
+          # Update target network every once in a while
+          if episode % target_update == 0:
+              target.load_state_dict(model.state_dict())
+
+
+          if episode % 1000 == 0 and episode > 0:
+            try:
+              data = (model.__class__.__name__, model.state_dict(), model.input_shape, model.num_actions)
+              torch.save(data, savepath+'_cb_{}_{}.pt'.format(etape,episode))
+            except:pass
+
+          if episode % print_interval == 0 and episode > 0:
+              
+                cur_print = print_interval*((episode//print_interval)-1)
+                print(cur_print)
+                int_list = np.array(list(map(int,rewards[cur_print:])))
+                r40 = np.count_nonzero(int_list == 20)
+                r50 = np.count_nonzero(int_list == 10)
+                try:
+                  per40 = (r40 / len(int_list)) *100
+                  per50 = (r50 / len(int_list)) *100
+                except:
+                  per40 = None 
+                  per50 = None
+                #print(len(rewards[cur_print:])
+                print("[Episode {}]\t rewards globals : {:.3f} \tavg rewards : {:.3f},\tavg loss: : {:.6f},\tbuffer size : {},\tepsilon : {:.1f}%, \t r <=40 {}, \t r > 40 {}".format(
+                                episode, np.mean(rewards),np.mean(rewards[cur_print:]), np.mean(losses), len(memory), epsilon*100,per40,per50))
+              
+      
+
+      rewards_l.append(rewards)
+      losses_l.append(losses)
     
+      try:
+        
+        data = (model.__class__.__name__, model.state_dict(), model.input_shape, model.num_actions)
+        torch.save(data, savepath+'_cb_{}.pt'.format(etape))
+      except:
+        print("Error while exporting")
+        data = (model.__class__.__name__, model.state_dict(), model.input_shape, model.num_actions)
+        torch.save(data, savepath + '_cb_{}.pt'.format(etape))
+    
+    try:
+      object_export = np.array([episodes_l,rewards_l,losses_l])
+      torch.save(object_export, savepath+'_history_lastcb.pt')
+    except:pass
+
     return model    
 
-def get_model():
+def get_model(modelpath=''):
     '''
     Load `model` from disk. Location is specified in `model_path`. 
     '''
-    model_class, model_state_dict, input_shape, num_actions = torch.load(model_path)
+    model_class, model_state_dict, input_shape, num_actions = torch.load(modelpath,map_location=torch.device(device))
     model = eval(model_class)(input_shape, num_actions).to(device)
     model.load_state_dict(model_state_dict)
     return model
@@ -389,32 +469,108 @@ def save_model(model):
     data = (model.__class__.__name__, model.state_dict(), model.input_shape, model.num_actions)
     torch.save(data, 'history_{}'.format(date_save))
 
-def get_env():
+def get_env(i,j):
     '''
     Get the sample test cases for training and testing.
     '''
+    return construct_task2_env()
 
-    return env_builder.construct_task2_env()
+
+
+def mainTest(agent,runs=25):
+
+    import sys
+    import time
+    from env import construct_task2_env
+
+    FAST_DOWNWARD_PATH = "/fast_downward/"
+
+    def test(agent, env, runs=1000, t_max=100):
+        rewards = []
+        for run in range(runs):
+            state = env.reset()
+            agent_init = {'fast_downward_path': FAST_DOWNWARD_PATH, 'agent_speed_range': (-3,-1), 'gamma' : 1}
+            #agent.initialize(**agent_init)
+            episode_rewards = 0.0
+            for t in range(t_max):
+                action = agent.act(state)   
+                next_state, reward, done, info = env.step(action)
+                full_state = {
+                    'state': state, 'action': action, 'reward': reward, 'next_state': next_state, 
+                    'done': done, 'info': info
+                }
+                #agent.update(**full_state)
+                state = next_state
+                episode_rewards += reward
+                if done:
+                    break
+            rewards.append(episode_rewards)
+        avg_rewards = sum(rewards)/len(rewards)
+        print("{} run(s) avg rewards : {:.1f}".format(runs, avg_rewards))
+        return avg_rewards
+
+    def timed_test(agent,task):
+        start_time = time.time()
+        rewards = []
+        for tc in task['testcases']:
+            #agent = create_agent(tc['id'])
+            print("[{}]".format(tc['id']), end=' ')
+            avg_rewards = test(agent, tc['env'], tc['runs'], tc['t_max'])
+            rewards.append(avg_rewards)
+        point = sum(rewards)/len(rewards)
+        elapsed_time = time.time() - start_time
+
+        print('Point:', point)
+
+        for t, remarks in [(0.4, 'fast'), (0.6, 'safe'), (0.8, 'dangerous'), (1.0, 'time limit exceeded')]:
+            if elapsed_time < task['time_limit'] * t:
+                print("Local runtime: {} seconds --- {}".format(elapsed_time, remarks))
+                print("WARNING: do note that this might not reflect the runtime on the server.")
+                break
+
+    def get_task(runs=300):
+        tcs = [('task_2_tmax50', 50), ('task_2_tmax40', 40)]
+        return {
+            'time_limit': 600,
+            'testcases': [{ 'id': tc, 'env': construct_task2_env(), 'runs': runs, 't_max': t_max } for tc, t_max in tcs]
+        }
+
+    task = get_task(runs=runs)
+    timed_test(agent,task)
 
 
 if __name__ == '__main__':
+    
     import argparse
 
     parser = argparse.ArgumentParser(description='Train and test DQN agent.')
     parser.add_argument('--train', dest='train', action='store_true', help='train the agent')
+    parser.add_argument('--test', dest='test', action='store_true', help='train the agent')
+    parser.add_argument('--pretrain', dest='pretrain', action='store_true', help='train the agent')
+    parser.add_argument('--path', dest='path', help='train the agent')
+    parser.add_argument('--savepath', dest='savepath', help='train the agent')
     args = parser.parse_args()
 
-    env = get_env()
+    env = get_env(49,4)
 
     if args.train:
-        model = train(AtariDQN, env)
-        save_model(model)
-    else:
-        FAST_DOWNWARD_PATH = "/fast_downward/"
-        model = get_model()
-    #test(model, env, max_episodes=600)
+      print("train mode")
+      model = train(ConvDQN, env)
+      save_model(model)
 
+    elif args.pretrain:
+      print("pretrain mode")
+      path_model = args.path
+      savepath = args.savepath
+      
+      model = get_model(path_model)
+      model_p = train(ConvDQN,env, pretrain=True,model_p= model,savepath=savepath)
 
-),
-            nn.Linear(512, self.num_actions)
-        )
+    elif args.test:
+      print("Test mode")
+      FAST_DOWNWARD_PATH = "/fast_downward/"
+      path_model = args.path
+      print("model loaded from {}:".format(path_model))
+      model = get_model(path_model)
+      mainTest(model, runs=300)
+
