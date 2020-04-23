@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import pandas as pd
-from env import construct_task2_env
+from env_ac import construct_task2_env
 import os
 import sys
 import time
@@ -82,7 +82,7 @@ def a2c(env):
       y_min = 0
       y_max = 5
       
-      i_1= random.randint(min(x_min,49),min(x_min+2,50))
+      i_1= random.randint(min(x_min,49),min(x_min+2,49))
       print(x_min,i_1)
       if x_min ==49:
         j_1 = 4
@@ -100,7 +100,7 @@ def a2c(env):
           values = []
           rewards = []
           if episode % 1000 == 0:
-            i_1= random.randint(min(x_min,49),min(x_min+2,50))
+            i_1= random.randint(min(x_min,49),min(x_min+2,49))
           if x_min == 49:
             j_1 = 4
           else:
