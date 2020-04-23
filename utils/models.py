@@ -267,10 +267,9 @@ def compute_loss(model, target, states, actions, rewards, next_states, dones):
     
     max_next_Q = torch.max(next_Q, 1)[0]
     max_next_Q = max_next_Q.view(max_next_Q.size(0), 1)
-    #print(max_next_Q)
     expected_Q = rewards + (1 - dones.int()) * gamma * max_next_Q
-    #print(expected_Q)
     loss = F.mse_loss(curr_Q, expected_Q.detach()) 
+
     return loss
 
 def optimize(model, target, memory, optimizer):
